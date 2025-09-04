@@ -73,7 +73,8 @@ if (themeRadios.length) {
 }
 
 // React to OS theme changes when in "system" mode
-const darkMq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+const darkMq =
+  window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
 const handleOsThemeChange = () => {
   const pref = localStorage.getItem("themePreference") || "system";
   if (pref === "system") updateWaveStroke();
@@ -88,16 +89,19 @@ if (darkMq && darkMq.addEventListener) {
 async function enumerateMicrophones() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach(track => track.stop());
+    stream.getTracks().forEach((track) => track.stop());
 
     const devices = await navigator.mediaDevices.enumerateDevices();
-    availableMicrophones = devices.filter(device => device.kind === 'audioinput');
+    availableMicrophones = devices.filter(
+      (device) => device.kind === "audioinput",
+    );
 
     populateMicrophoneSelect();
     console.log(`Found ${availableMicrophones.length} microphone(s)`);
   } catch (error) {
-    console.error('Error enumerating microphones:', error);
-    statusText.textContent = "Error accessing microphones. Please grant permission.";
+    console.error("Error enumerating microphones:", error);
+    statusText.textContent =
+      "Error accessing microphones. Please grant permission.";
   }
 }
 
@@ -107,14 +111,17 @@ function populateMicrophoneSelect() {
   microphoneSelect.innerHTML = '<option value="">Default Microphone</option>';
 
   availableMicrophones.forEach((device, index) => {
-    const option = document.createElement('option');
+    const option = document.createElement("option");
     option.value = device.deviceId;
     option.textContent = device.label || `Microphone ${index + 1}`;
     microphoneSelect.appendChild(option);
   });
 
-  const savedMicId = localStorage.getItem('selectedMicrophone');
-  if (savedMicId && availableMicrophones.some(mic => mic.deviceId === savedMicId)) {
+  const savedMicId = localStorage.getItem("selectedMicrophone");
+  if (
+    savedMicId &&
+    availableMicrophones.some((mic) => mic.deviceId === savedMicId)
+  ) {
     microphoneSelect.value = savedMicId;
     selectedMicrophoneId = savedMicId;
   }
@@ -122,10 +129,14 @@ function populateMicrophoneSelect() {
 
 function handleMicrophoneChange() {
   selectedMicrophoneId = microphoneSelect.value || null;
-  localStorage.setItem('selectedMicrophone', selectedMicrophoneId || '');
+  localStorage.setItem("selectedMicrophone", selectedMicrophoneId || "");
 
-  const selectedDevice = availableMicrophones.find(mic => mic.deviceId === selectedMicrophoneId);
-  const deviceName = selectedDevice ? selectedDevice.label : 'Default Microphone';
+  const selectedDevice = availableMicrophones.find(
+    (mic) => mic.deviceId === selectedMicrophoneId,
+  );
+  const deviceName = selectedDevice
+    ? selectedDevice.label
+    : "Default Microphone";
 
   console.log(`Selected microphone: ${deviceName}`);
   statusText.textContent = `Microphone changed to: ${deviceName}`;
@@ -147,13 +158,15 @@ function fmt1(x) {
 }
 
 // Default WebSocket URL computation
-const host = window.location.hostname || "localhost";
-const port = window.location.port;
-const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-const defaultWebSocketUrl = `${protocol}://${host}${port ? ":" + port : ""}/asr`;
+// const host = window.location.hostname || "localhost";
+// const port = window.location.port;
+// const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+// const defaultWebSocketUrl = `${protocol}://${host}${port ? ":" + port : ""}/asr`;
+const defaultWebSocketUrl = "ws://localhost:8000/asr";
 
 // Populate default caption and input
-if (websocketDefaultSpan) websocketDefaultSpan.textContent = defaultWebSocketUrl;
+if (websocketDefaultSpan)
+  websocketDefaultSpan.textContent = defaultWebSocketUrl;
 websocketInput.value = defaultWebSocketUrl;
 websocketUrl = defaultWebSocketUrl;
 
@@ -168,7 +181,8 @@ if (chunkSelector) {
 websocketInput.addEventListener("change", () => {
   const urlValue = websocketInput.value.trim();
   if (!urlValue.startsWith("ws://") && !urlValue.startsWith("wss://")) {
-    statusText.textContent = "Invalid WebSocket URL (must start with ws:// or wss://)";
+    statusText.textContent =
+      "Invalid WebSocket URL (must start with ws:// or wss://)";
     return;
   }
   websocketUrl = urlValue;
@@ -180,7 +194,8 @@ function setupWebSocket() {
     try {
       websocket = new WebSocket(websocketUrl);
     } catch (error) {
-      statusText.textContent = "Invalid WebSocket URL. Please check and try again.";
+      statusText.textContent =
+        "Invalid WebSocket URL. Please check and try again.";
       reject(error);
       return;
     }
@@ -201,12 +216,13 @@ function setupWebSocket() {
               lastReceivedData.buffer_transcription || "",
               0,
               0,
-              true
+              true,
             );
           }
         }
       } else {
-        statusText.textContent = "Disconnected from the WebSocket server. (Check logs if model is loading.)";
+        statusText.textContent =
+          "Disconnected from the WebSocket server. (Check logs if model is loading.)";
         if (isRecording) {
           stopRecording();
         }
@@ -228,7 +244,9 @@ function setupWebSocket() {
       const data = JSON.parse(event.data);
 
       if (data.type === "ready_to_stop") {
-        console.log("Ready to stop received, finalizing display and closing WebSocket.");
+        console.log(
+          "Ready to stop received, finalizing display and closing WebSocket.",
+        );
         waitingForStop = false;
 
         if (lastReceivedData) {
@@ -238,10 +256,11 @@ function setupWebSocket() {
             lastReceivedData.buffer_transcription || "",
             0,
             0,
-            true
+            true,
           );
         }
-        statusText.textContent = "Finished processing audio! Ready to record again.";
+        statusText.textContent =
+          "Finished processing audio! Ready to record again.";
         recordButton.disabled = false;
 
         if (websocket) {
@@ -268,7 +287,7 @@ function setupWebSocket() {
         remaining_time_diarization,
         remaining_time_transcription,
         false,
-        status
+        status,
       );
     };
   });
@@ -281,7 +300,7 @@ function renderLinesWithBuffer(
   remaining_time_diarization,
   remaining_time_transcription,
   isFinalizing = false,
-  current_status = "active_transcription"
+  current_status = "active_transcription",
 ) {
   if (current_status === "no_audio_detected") {
     linesTranscriptDiv.innerHTML =
@@ -289,11 +308,18 @@ function renderLinesWithBuffer(
     return;
   }
 
-  const showLoading = !isFinalizing && (lines || []).some((it) => it.speaker == 0);
+  const showLoading =
+    !isFinalizing && (lines || []).some((it) => it.speaker == 0);
   const showTransLag = !isFinalizing && remaining_time_transcription > 0;
-  const showDiaLag = !isFinalizing && !!buffer_diarization && remaining_time_diarization > 0;
+  const showDiaLag =
+    !isFinalizing && !!buffer_diarization && remaining_time_diarization > 0;
   const signature = JSON.stringify({
-    lines: (lines || []).map((it) => ({ speaker: it.speaker, text: it.text, beg: it.beg, end: it.end })),
+    lines: (lines || []).map((it) => ({
+      speaker: it.speaker,
+      text: it.text,
+      beg: it.beg,
+      end: it.end,
+    })),
     buffer_transcription: buffer_transcription || "",
     buffer_diarization: buffer_diarization || "",
     status: current_status,
@@ -325,7 +351,7 @@ function renderLinesWithBuffer(
         speakerLabel = `<span class="silence">Silence<span id='timeInfo'>${timeInfo}</span></span>`;
       } else if (item.speaker == 0 && !isFinalizing) {
         speakerLabel = `<span class='loading'><span class="spinner"></span><span id='timeInfo'><span class="loading-diarization-value">${fmt1(
-          remaining_time_diarization
+          remaining_time_diarization,
         )}</span> second(s) of audio are undergoing diarization</span></span>`;
       } else if (item.speaker !== 0) {
         speakerLabel = `<span id="speaker">Speaker ${item.speaker}<span id='timeInfo'>${timeInfo}</span></span>`;
@@ -337,12 +363,12 @@ function renderLinesWithBuffer(
         if (!isFinalizing && item.speaker !== -2) {
           if (remaining_time_transcription > 0) {
             speakerLabel += `<span class="label_transcription"><span class="spinner"></span>Transcription lag <span id='timeInfo'><span class="lag-transcription-value">${fmt1(
-              remaining_time_transcription
+              remaining_time_transcription,
             )}</span>s</span></span>`;
           }
           if (buffer_diarization && remaining_time_diarization > 0) {
             speakerLabel += `<span class="label_diarization"><span class="spinner"></span>Diarization lag<span id='timeInfo'><span class="lag-diarization-value">${fmt1(
-              remaining_time_diarization
+              remaining_time_diarization,
             )}</span>s</span></span>`;
           }
         }
@@ -350,7 +376,10 @@ function renderLinesWithBuffer(
         if (buffer_diarization) {
           if (isFinalizing) {
             currentLineText +=
-              (currentLineText.length > 0 && buffer_diarization.trim().length > 0 ? " " : "") + buffer_diarization.trim();
+              (currentLineText.length > 0 &&
+              buffer_diarization.trim().length > 0
+                ? " "
+                : "") + buffer_diarization.trim();
           } else {
             currentLineText += `<span class="buffer_diarization">${buffer_diarization}</span>`;
           }
@@ -358,8 +387,10 @@ function renderLinesWithBuffer(
         if (buffer_transcription) {
           if (isFinalizing) {
             currentLineText +=
-              (currentLineText.length > 0 && buffer_transcription.trim().length > 0 ? " " : "") +
-              buffer_transcription.trim();
+              (currentLineText.length > 0 &&
+              buffer_transcription.trim().length > 0
+                ? " "
+                : "") + buffer_transcription.trim();
           } else {
             currentLineText += `<span class="buffer_transcription">${buffer_transcription}</span>`;
           }
@@ -380,7 +411,9 @@ function updateTimer() {
   if (!startTime) return;
 
   const elapsed = Math.floor((Date.now() - startTime) / 1000);
-  const minutes = Math.floor(elapsed / 60).toString().padStart(2, "0");
+  const minutes = Math.floor(elapsed / 60)
+    .toString()
+    .padStart(2, "0");
   const seconds = (elapsed % 60).toString().padStart(2, "0");
   timerElement.textContent = `${minutes}:${seconds}`;
 }
@@ -396,13 +429,14 @@ function drawWaveform() {
     0,
     0,
     waveCanvas.width / (window.devicePixelRatio || 1),
-    waveCanvas.height / (window.devicePixelRatio || 1)
+    waveCanvas.height / (window.devicePixelRatio || 1),
   );
   waveCtx.lineWidth = 1;
   waveCtx.strokeStyle = waveStroke;
   waveCtx.beginPath();
 
-  const sliceWidth = (waveCanvas.width / (window.devicePixelRatio || 1)) / bufferLength;
+  const sliceWidth =
+    waveCanvas.width / (window.devicePixelRatio || 1) / bufferLength;
   let x = 0;
 
   for (let i = 0; i < bufferLength; i++) {
@@ -420,7 +454,7 @@ function drawWaveform() {
 
   waveCtx.lineTo(
     waveCanvas.width / (window.devicePixelRatio || 1),
-    (waveCanvas.height / (window.devicePixelRatio || 1)) / 2
+    waveCanvas.height / (window.devicePixelRatio || 1) / 2,
   );
   waveCtx.stroke();
 
@@ -435,7 +469,7 @@ async function startRecording() {
       console.log("Error acquiring wake lock.");
     }
 
-    const audioConstraints = selectedMicrophoneId 
+    const audioConstraints = selectedMicrophoneId
       ? { audio: { deviceId: { exact: selectedMicrophoneId } } }
       : { audio: true };
 
@@ -466,7 +500,8 @@ async function startRecording() {
       statusText.textContent =
         "Error accessing microphone. Browsers may block microphone access on 0.0.0.0. Try using localhost:8000 instead.";
     } else {
-      statusText.textContent = "Error accessing microphone. Please allow microphone access.";
+      statusText.textContent =
+        "Error accessing microphone. Please allow microphone access.";
     }
     console.error(err);
   }
@@ -545,7 +580,8 @@ async function toggleRecording() {
         await startRecording();
       }
     } catch (err) {
-      statusText.textContent = "Could not connect to WebSocket or access mic. Aborted.";
+      statusText.textContent =
+        "Could not connect to WebSocket or access mic. Aborted.";
       console.error(err);
     }
   } else {
@@ -559,14 +595,17 @@ function updateUI() {
   recordButton.disabled = waitingForStop;
 
   if (waitingForStop) {
-    if (statusText.textContent !== "Recording stopped. Processing final audio...") {
+    if (
+      statusText.textContent !== "Recording stopped. Processing final audio..."
+    ) {
       statusText.textContent = "Please wait for processing to complete...";
     }
   } else if (isRecording) {
     statusText.textContent = "Recording...";
   } else {
     if (
-      statusText.textContent !== "Finished processing audio! Ready to record again." &&
+      statusText.textContent !==
+        "Finished processing audio! Ready to record again." &&
       statusText.textContent !== "Processing finalized or connection closed."
     ) {
       statusText.textContent = "Click to start transcription";
@@ -582,15 +621,15 @@ recordButton.addEventListener("click", toggleRecording);
 if (microphoneSelect) {
   microphoneSelect.addEventListener("change", handleMicrophoneChange);
 }
-document.addEventListener('DOMContentLoaded', async () => {
+document.addEventListener("DOMContentLoaded", async () => {
   try {
     await enumerateMicrophones();
   } catch (error) {
     console.log("Could not enumerate microphones on load:", error);
   }
 });
-navigator.mediaDevices.addEventListener('devicechange', async () => {
-  console.log('Device change detected, re-enumerating microphones');
+navigator.mediaDevices.addEventListener("devicechange", async () => {
+  console.log("Device change detected, re-enumerating microphones");
   try {
     await enumerateMicrophones();
   } catch (error) {

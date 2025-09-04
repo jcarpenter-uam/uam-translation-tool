@@ -8,8 +8,6 @@ python -m venv venv && source venv/bin/activate
 pip install -e .
 ```
 
-## The run the server with your chosen args
-
 ```bash
-whisperlivekit-server
+whisperlivekit-server --task translate --language zh
 ```
