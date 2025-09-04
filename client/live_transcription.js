@@ -20,6 +20,7 @@ let lastReceivedData = null;
 let lastSignature = null;
 let availableMicrophones = [];
 let selectedMicrophoneId = null;
+let userRole = "user";
 
 waveCanvas.width = 60 * (window.devicePixelRatio || 1);
 waveCanvas.height = 30 * (window.devicePixelRatio || 1);
@@ -158,10 +159,7 @@ function fmt1(x) {
 }
 
 // Default WebSocket URL computation
-// const host = window.location.hostname || "localhost";
-// const port = window.location.port;
-// const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-// const defaultWebSocketUrl = `${protocol}://${host}${port ? ":" + port : ""}/asr`;
+// TODO: Change to variable
 const defaultWebSocketUrl = "ws://localhost:8000/asr";
 
 // Populate default caption and input
@@ -192,7 +190,9 @@ websocketInput.addEventListener("change", () => {
 function setupWebSocket() {
   return new Promise((resolve, reject) => {
     try {
-      websocket = new WebSocket(websocketUrl);
+      const urlWithRole = new URL(websocketUrl);
+      urlWithRole.searchParams.append("role", userRole);
+      websocket = new WebSocket(urlWithRole.href);
     } catch (error) {
       statusText.textContent =
         "Invalid WebSocket URL. Please check and try again.";
@@ -566,6 +566,8 @@ async function stopRecording() {
 }
 
 async function toggleRecording() {
+  if (userRole !== "host") return;
+
   if (!isRecording) {
     if (waitingForStop) {
       console.log("Waiting for stop, early return");
@@ -622,11 +624,26 @@ if (microphoneSelect) {
   microphoneSelect.addEventListener("change", handleMicrophoneChange);
 }
 document.addEventListener("DOMContentLoaded", async () => {
-  try {
-    await enumerateMicrophones();
-  } catch (error) {
-    console.log("Could not enumerate microphones on load:", error);
+  const urlParams = new URLSearchParams(window.location.search);
+  userRole = urlParams.get("role") || "user";
+
+  if (userRole !== "host") {
+    const settingsContainer = document.querySelector(".settings-container");
+    if (settingsContainer) {
+      settingsContainer.style.display = "none";
+    }
+    // For viewers, just try to connect and listen
+    setupWebSocket().catch((err) =>
+      console.error("Viewer WebSocket connection failed:", err),
+    );
+  } else {
+    try {
+      await enumerateMicrophones();
+    } catch (error) {
+      console.log("Could not enumerate microphones on load:", error);
+    }
   }
+  updateUI(); // Initial UI update based on role
 });
 navigator.mediaDevices.addEventListener("devicechange", async () => {
   console.log("Device change detected, re-enumerating microphones");

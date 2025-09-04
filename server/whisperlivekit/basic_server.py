@@ -2,8 +2,9 @@ import asyncio
 import logging
 import pathlib
 from contextlib import asynccontextmanager
+from typing import Set
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from whisperlivekit import AudioProcessor, TranscriptionEngine, parse_args
@@ -17,6 +18,9 @@ logger.setLevel(logging.DEBUG)
 
 args = parse_args()
 transcription_engine = None
+
+clients: Set[WebSocket] = set()
+host_client: WebSocket = None
 
 
 @asynccontextmanager
@@ -49,66 +53,76 @@ app.add_middleware(
 )
 
 
-async def handle_websocket_results(websocket, results_generator):
-    """Consumes results from the audio processor and sends them via WebSocket."""
+async def broadcast(message: dict):
+    """Broadcasts a message to all connected clients."""
+    for client in clients:
+        try:
+            await client.send_json(message)
+        except Exception as e:
+            logger.error(f"Error broadcasting to a client: {e}")
+
+
+async def handle_websocket_results(results_generator):
+    """Consumes results from the audio processor and broadcasts them."""
     try:
         async for response in results_generator:
-            await websocket.send_json(response)
-        # when the results_generator finishes it means all audio has been processed
-        logger.info("Results generator finished. Sending 'ready_to_stop' to client.")
-        await websocket.send_json({"type": "ready_to_stop"})
-    except WebSocketDisconnect:
-        logger.info(
-            "WebSocket disconnected while handling results (client likely closed connection)."
-        )
+            await broadcast(response)
+        logger.info("Results generator finished. Broadcasting 'ready_to_stop'.")
+        await broadcast({"type": "ready_to_stop"})
     except Exception as e:
         logger.exception(f"Error in WebSocket results handler: {e}")
 
 
 @app.websocket("/asr")
-async def websocket_endpoint(websocket: WebSocket):
-    global transcription_engine
-    audio_processor = AudioProcessor(
-        transcription_engine=transcription_engine,
-    )
+async def websocket_endpoint(websocket: WebSocket, role: str = Query(None)):
+    global host_client
     await websocket.accept()
-    logger.info("WebSocket connection opened.")
+    clients.add(websocket)
+    logger.info(f"Client connected with role: {role}")
 
-    results_generator = await audio_processor.create_tasks()
-    websocket_task = asyncio.create_task(
-        handle_websocket_results(websocket, results_generator)
-    )
+    if role == "host":
+        if host_client is not None:
+            await websocket.send_json({"error": "A host is already connected."})
+            await websocket.close()
+            clients.remove(websocket)
+            return
 
-    try:
-        while True:
-            message = await websocket.receive_bytes()
-            await audio_processor.process_audio(message)
-    except KeyError as e:
-        if "bytes" in str(e):
-            logger.warning(f"Client has closed the connection.")
-        else:
-            logger.error(
-                f"Unexpected KeyError in websocket_endpoint: {e}", exc_info=True
-            )
-    except WebSocketDisconnect:
-        logger.info("WebSocket disconnected by client during message receiving loop.")
-    except Exception as e:
-        logger.error(
-            f"Unexpected error in websocket_endpoint main loop: {e}", exc_info=True
+        host_client = websocket
+        audio_processor = AudioProcessor(
+            transcription_engine=transcription_engine,
         )
-    finally:
-        logger.info("Cleaning up WebSocket endpoint...")
-        if not websocket_task.done():
-            websocket_task.cancel()
-        try:
-            await websocket_task
-        except asyncio.CancelledError:
-            logger.info("WebSocket results handler task was cancelled.")
-        except Exception as e:
-            logger.warning(f"Exception while awaiting websocket_task completion: {e}")
+        results_generator = await audio_processor.create_tasks()
+        websocket_task = asyncio.create_task(
+            handle_websocket_results(results_generator)
+        )
 
-        await audio_processor.cleanup()
-        logger.info("WebSocket endpoint cleaned up successfully.")
+        try:
+            while True:
+                message = await websocket.receive_bytes()
+                await audio_processor.process_audio(message)
+        except WebSocketDisconnect:
+            logger.info("Host disconnected.")
+        except Exception as e:
+            logger.error(f"Error with host client: {e}", exc_info=True)
+        finally:
+            host_client = None
+            if not websocket_task.done():
+                websocket_task.cancel()
+            await audio_processor.cleanup()
+
+    else:  # Viewer client
+        try:
+            # Keep the connection open to receive broadcasts
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            logger.info("A viewer disconnected.")
+        except Exception as e:
+            logger.error(f"Error with viewer client: {e}", exc_info=True)
+
+    if websocket in clients:
+        clients.remove(websocket)
+    logger.info("Client disconnected.")
 
 
 def main():
