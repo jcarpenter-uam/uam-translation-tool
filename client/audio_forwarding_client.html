@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zoom Audio Forwarding Client</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+      body {
+        font-family: "Inter", sans-serif;
+      }
+      .status-dot {
+        height: 10px;
+        width: 10px;
+        border-radius: 50%;
+        display: inline-block;
+        animation: pulse 2s infinite;
+      }
+      .status-dot-green {
+        background-color: #2ecc71;
+        box-shadow: 0 0 0 0 rgba(46, 204, 113, 1);
+      }
+      .status-dot-red {
+        background-color: #e74c3c;
+        box-shadow: 0 0 0 0 rgba(231, 76, 60, 1);
+      }
+      .status-dot-orange {
+        background-color: #f39c12;
+        box-shadow: 0 0 0 0 rgba(243, 156, 18, 1);
+      }
+      .status-dot-gray {
+        background-color: #95a5a6;
+        animation: none;
+      }
+      @keyframes pulse {
+        0% {
+          transform: scale(0.95);
+          box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.7);
+        }
+        70% {
+          transform: scale(1);
+          box-shadow: 0 0 0 10px rgba(0, 0, 0, 0);
+        }
+        100% {
+          transform: scale(0.95);
+          box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+        }
+      }
+    </style>
+  </head>
+  <body
+    class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4"
+  >
+    <div
+      class="w-full max-w-4xl bg-gray-800 rounded-2xl shadow-2xl p-8 space-y-6"
+    >
+      <header class="text-center">
+        <h1 class="text-3xl font-bold text-gray-100">
+          Real-Time Audio Forwarding Client
+        </h1>
+        <p class="text-gray-400 mt-2">
+          Connecting to mock Zoom RTMS and forwarding per-participant audio
+          streams.
+        </p>
+      </header>
+
+      <div class="flex justify-center space-x-4">
+        <button
+          id="connectBtn"
+          class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-transform transform hover:scale-105"
+        >
+          Connect
+        </button>
+        <button
+          id="disconnectBtn"
+          class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-transform transform hover:scale-105"
+          disabled
+        >
+          Disconnect
+        </button>
+      </div>
+
+      <div class="bg-gray-900 p-6 rounded-lg space-y-4">
+        <h2 class="text-xl font-semibold border-b border-gray-700 pb-2">
+          Connection Status
+        </h2>
+        <div id="zoom-status" class="flex items-center space-x-3">
+          <span class="status-dot status-dot-red"></span>
+          <span class="font-medium">Zoom RTMS Server:</span>
+          <span class="text-gray-400">Disconnected</span>
+        </div>
+        <div id="viewer-status" class="flex items-center space-x-3">
+          <span class="status-dot status-dot-red"></span>
+          <span class="font-medium">Backend Viewer:</span>
+          <span class="text-gray-400">Disconnected</span>
+        </div>
+      </div>
+
+      <div class="bg-gray-900 p-6 rounded-lg">
+        <h2 class="text-xl font-semibold border-b border-gray-700 pb-2 mb-4">
+          Detected Participants (Speakers)
+        </h2>
+        <div id="participants-list" class="space-y-4">
+          <p class="text-gray-500">Waiting for incoming audio streams...</p>
+        </div>
+      </div>
+
+      <div class="bg-gray-900 p-6 rounded-lg">
+        <h2 class="text-xl font-semibold border-b border-gray-700 pb-2 mb-4">
+          Live Transcription
+        </h2>
+        <div
+          id="backend-logs-list"
+          class="space-y-2 max-h-60 overflow-y-auto font-mono text-sm bg-gray-950 p-4 rounded-md"
+        >
+          <p class="text-gray-500">Waiting for responses from backend...</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // --- Configuration ---
+      const MOCK_ZOOM_SERVER_URL = "ws://localhost:8080";
+      // Ensure this port matches your backend server (basic_server.py) port.
+      const BACKEND_SERVER_BASE_URL = "ws://localhost:8000/asr";
+
+      // --- DOM Elements ---
+      const connectBtn = document.getElementById("connectBtn");
+      const disconnectBtn = document.getElementById("disconnectBtn");
+      const zoomStatusEl = document.getElementById("zoom-status");
+      const viewerStatusEl = document.getElementById("viewer-status");
+      const participantsListEl = document.getElementById("participants-list");
+      const backendLogsListEl = document.getElementById("backend-logs-list");
+
+      // --- State Management ---
+      let zoomSocket = null;
+      let viewerSocket = null;
+      const speakerSockets = new Map();
+
+      // --- UI Update Functions ---
+      function updateStatus(
+        element,
+        isConnected,
+        message = "Disconnected",
+        connectedMessage = "Connected",
+      ) {
+        const dot = element.querySelector(".status-dot");
+        const text = element.querySelector("span:last-child");
+        dot.className = isConnected
+          ? "status-dot status-dot-green"
+          : "status-dot status-dot-red";
+        text.textContent = isConnected ? connectedMessage : message;
+        text.className = isConnected ? "text-green-400" : "text-red-400";
+      }
+
+      function addOrUpdateParticipant(
+        userId,
+        userName,
+        status = "Connecting...",
+      ) {
+        let participantEl = document.getElementById(`user-${userId}`);
+
+        if (!participantEl) {
+          if (participantsListEl.querySelector("p")) {
+            participantsListEl.innerHTML = "";
+          }
+          participantEl = document.createElement("div");
+          participantEl.id = `user-${userId}`;
+          participantEl.className =
+            "flex items-center justify-between bg-gray-700 p-3 rounded-lg animate-fade-in";
+          participantsListEl.appendChild(participantEl);
+        }
+
+        let dotColor, textColor;
+        switch (status) {
+          case "Forwarding":
+            dotColor = "status-dot-green";
+            textColor = "text-green-400";
+            break;
+          case "Finished":
+            dotColor = "status-dot-gray";
+            textColor = "text-gray-400";
+            break;
+          default: // Connecting
+            dotColor = "status-dot-orange";
+            textColor = "text-yellow-400";
+            break;
+        }
+
+        participantEl.innerHTML = `
+          <div class="flex items-center space-x-3">
+            <span class="font-bold text-lg">${userName}</span>
+            <span class="text-sm text-gray-400">(ID: ${userId})</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <span class="status-dot ${dotColor}" style="animation-duration: 1.5s;"></span>
+            <span class="${textColor}">${status}</span>
+          </div>
+        `;
+      }
+
+      function displayBackendResponse(data) {
+        const placeholder = backendLogsListEl.querySelector("p");
+        if (placeholder) placeholder.remove();
+
+        const logEntry = document.createElement("div");
+        const timestamp = new Date().toLocaleTimeString();
+        let formattedMessage = data;
+
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.lines && parsed.lines.length > 0) {
+            formattedMessage = parsed.lines
+              .map((line) => {
+                return line.text
+                  ? `[Speaker ${line.speaker}]: ${line.text}`
+                  : "";
+              })
+              .join("<br>");
+          } else if (parsed.buffer_transcription) {
+            formattedMessage = `<i>${parsed.buffer_transcription}</i>`;
+          } else if (parsed.type === "ready_to_stop") {
+            formattedMessage = "<i>--- End of segment ---</i>";
+          }
+        } catch (e) {
+          // Not JSON, do nothing or display raw text if needed for debugging.
+        }
+
+        logEntry.innerHTML = `<span class="text-gray-500 mr-2">[${timestamp}]</span> ${formattedMessage}`;
+        backendLogsListEl.prepend(logEntry);
+
+        if (backendLogsListEl.children.length > 100) {
+          backendLogsListEl.removeChild(backendLogsListEl.lastChild);
+        }
+      }
+
+      function base64ToArrayBuffer(base64) {
+        try {
+          const binaryString = window.atob(base64);
+          const len = binaryString.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          return bytes.buffer;
+        } catch (error) {
+          console.error("DECODING FAILED:", error);
+          console.error(
+            "Problematic data string (length " + base64.length + "):",
+            base64,
+          );
+          // Return null or an empty buffer to prevent further errors down the line.
+          return null;
+        }
+      }
+
+      // --- WebSocket Logic ---
+      function connectToZoom() {
+        if (zoomSocket && zoomSocket.readyState === WebSocket.OPEN) return;
+
+        console.log(
+          `Connecting to Mock Zoom Server at ${MOCK_ZOOM_SERVER_URL}...`,
+        );
+        zoomSocket = new WebSocket(MOCK_ZOOM_SERVER_URL);
+
+        zoomSocket.onopen = () => {
+          console.log("Successfully connected to Mock Zoom Server.");
+          updateStatus(zoomStatusEl, true);
+          connectBtn.disabled = true;
+          disconnectBtn.disabled = false;
+          connectToViewer();
+        };
+
+        zoomSocket.onmessage = (event) => {
+          const message = JSON.parse(event.data);
+          if (message.msg_type === 14) {
+            handleAudioData(message.content);
+          }
+        };
+
+        zoomSocket.onerror = (error) => {
+          console.error("Zoom WebSocket Error:", error);
+          updateStatus(zoomStatusEl, false, "Connection Error");
+        };
+
+        zoomSocket.onclose = () => {
+          console.log("Disconnected from Mock Zoom Server.");
+          disconnectAll();
+        };
+      }
+
+      function connectToViewer() {
+        if (viewerSocket && viewerSocket.readyState === WebSocket.OPEN) return;
+
+        const connectionUrl = `${BACKEND_SERVER_BASE_URL}?role=user`;
+        console.log(`Connecting to Backend Viewer at ${connectionUrl}`);
+        viewerSocket = new WebSocket(connectionUrl);
+
+        viewerSocket.onopen = () => {
+          console.log("Viewer connection established.");
+          updateStatus(viewerStatusEl, true);
+        };
+
+        viewerSocket.onmessage = (event) => {
+          displayBackendResponse(event.data);
+        };
+
+        viewerSocket.onclose = () => {
+          console.log("Viewer connection closed.");
+          updateStatus(viewerStatusEl, false);
+        };
+      }
+
+      function handleAudioData(content) {
+        const { user_id, user_name, data } = content;
+
+        // --- KEY CHANGE: Detect end-of-stream signal from mock server ---
+        if (data === "") {
+          handleEndOfStream(user_id, user_name);
+          return;
+        }
+
+        if (!speakerSockets.has(user_id)) {
+          console.log(
+            `First audio packet from ${user_name}. Creating backend speaker connection.`,
+          );
+          createSpeakerConnection(user_id, user_name);
+        }
+
+        const speakerSocket = speakerSockets.get(user_id);
+        if (speakerSocket && speakerSocket.readyState === WebSocket.OPEN) {
+          const audioBuffer = base64ToArrayBuffer(data);
+          if (audioBuffer) {
+            // Only send if decoding was successful
+            speakerSocket.send(audioBuffer);
+          }
+        }
+      }
+
+      function handleEndOfStream(userId, userName) {
+        const speakerSocket = speakerSockets.get(userId);
+        if (speakerSocket) {
+          console.log(
+            `Stream ended for ${userName}. Finalizing backend connection.`,
+          );
+          // Send an empty message to tell the backend to finalize processing for this stream.
+          if (speakerSocket.readyState === WebSocket.OPEN) {
+            try {
+              speakerSocket.send(new Blob([]));
+            } catch (e) {}
+          }
+          // Close the connection shortly after signaling end.
+          setTimeout(() => speakerSocket.close(), 250);
+          addOrUpdateParticipant(userId, userName, "Finished");
+        }
+      }
+
+      function createSpeakerConnection(userId, userName) {
+        addOrUpdateParticipant(userId, userName, "Connecting...");
+        const connectionUrl = `${BACKEND_SERVER_BASE_URL}?role=speaker`;
+        const backendSocket = new WebSocket(connectionUrl);
+
+        backendSocket.onopen = () => {
+          console.log(
+            `Backend speaker connection for ${userName} established.`,
+          );
+          addOrUpdateParticipant(userId, userName, "Forwarding");
+        };
+
+        backendSocket.onclose = () => {
+          console.log(`Backend speaker connection for ${userName} closed.`);
+          addOrUpdateParticipant(userId, userName, "Finished");
+          speakerSockets.delete(userId);
+        };
+
+        backendSocket.onerror = (error) => {
+          console.error(`Backend WebSocket Error for ${userName}:`, error);
+        };
+
+        speakerSockets.set(userId, backendSocket);
+      }
+
+      function disconnectAll() {
+        if (zoomSocket) zoomSocket.close();
+        if (viewerSocket) viewerSocket.close();
+
+        for (const socket of speakerSockets.values()) {
+          socket.close();
+        }
+        speakerSockets.clear();
+
+        updateStatus(zoomStatusEl, false);
+        updateStatus(viewerStatusEl, false);
+        participantsListEl.innerHTML =
+          '<p class="text-gray-500">Waiting for incoming audio streams...</p>';
+        backendLogsListEl.innerHTML =
+          '<p class="text-gray-500">Waiting for responses from backend...</p>';
+
+        connectBtn.disabled = false;
+        disconnectBtn.disabled = true;
+      }
+
+      // --- Event Listeners ---
+      connectBtn.addEventListener("click", connectToZoom);
+      disconnectBtn.addEventListener("click", disconnectAll);
+    </script>
+  </body>
+</html>
