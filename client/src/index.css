@@ -1,0 +1,44 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+body {
+  font-family: "Inter", sans-serif;
+}
+
+.status-dot {
+  height: 10px;
+  width: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  animation: pulse 2s infinite;
+}
+.status-dot-green {
+  background-color: #2ecc71;
+  box-shadow: 0 0 0 0 rgba(46, 204, 113, 1);
+}
+.status-dot-red {
+  background-color: #e74c3c;
+  box-shadow: 0 0 0 0 rgba(231, 76, 60, 1);
+}
+.status-dot-orange {
+  background-color: #f39c12;
+  box-shadow: 0 0 0 0 rgba(243, 156, 18, 1);
+}
+.status-dot-gray {
+  background-color: #95a5a6;
+  animation: none;
+}
+@keyframes pulse {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 10px rgba(0, 0, 0, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(0, 0, 0, 0);
+  }
+}
