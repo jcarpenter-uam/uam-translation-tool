@@ -9,5 +9,5 @@ pip install -e .
 ```
 
 ```bash
-whisperlivekit-server --task translate --language zh
+whisperlivekit-server --task translate --language zh --pcm-input
 ```

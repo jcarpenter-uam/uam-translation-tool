@@ -2,62 +2,25 @@ import { useState, useRef, useEffect } from "react";
 
 // --- Child Components ---
 import ConnectionStatus from "./components/con-status";
-import Participants from "./components/participants";
 import Translation from "./components/translation";
 
-// TODO: Swap to env variables, for now this is fine
 // --- Configuration ---
-const MOCK_ZOOM_SERVER_URL = "ws://localhost:8080";
-const BACKEND_SERVER_BASE_URL = "ws://localhost:8000/asr";
+const BACKEND_SERVER_URL = "ws://localhost:8000/asr?role=user";
 
 function App() {
   // --- State Management ---
-  const [isConnected, setIsConnected] = useState(false);
-  const [zoomStatus, setZoomStatus] = useState({
-    status: "Disconnected",
-    message: "Disconnected",
-  });
   const [viewerStatus, setViewerStatus] = useState({
     status: "Disconnected",
-    message: "Disconnected",
+    message: "Connecting...",
   });
-  const [participants, setParticipants] = useState([]);
   const [logs, setLogs] = useState([]);
-
-  // --- Refs for WebSocket instances ---
-  const zoomSocket = useRef(null);
   const viewerSocket = useRef(null);
-  const speakerSockets = useRef(new Map());
 
-  // --- Core WebSocket and State Logic ---
-  const base64ToArrayBuffer = (base64) => {
-    try {
-      const binaryString = window.atob(base64);
-      const len = binaryString.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      return bytes.buffer;
-    } catch (error) {
-      console.error("DECODING FAILED:", error);
-      return null;
-    }
-  };
-
-  const addOrUpdateParticipant = (userId, userName, status) => {
-    setParticipants((prev) => {
-      const existing = prev.find((p) => p.userId === userId);
-      if (existing) {
-        return prev.map((p) => (p.userId === userId ? { ...p, status } : p));
-      }
-      return [...prev, { userId, userName, status }];
-    });
-  };
-
+  // --- Display and Formatting Logic ---
   const displayBackendResponse = (data) => {
     const timestamp = new Date().toLocaleTimeString();
     let formattedMessage = data;
+
     try {
       const parsed = JSON.parse(data);
       if (parsed.lines && parsed.lines.length > 0) {
@@ -70,7 +33,7 @@ function App() {
         formattedMessage = "<i>--- End of segment ---</i>";
       }
     } catch (e) {
-      /* Not JSON, use raw data */
+      // If it's not JSON, display the raw data
     }
 
     setLogs((prev) =>
@@ -78,88 +41,44 @@ function App() {
     );
   };
 
-  const handleDisconnectAll = () => {
-    if (zoomSocket.current) zoomSocket.current.close();
-    if (viewerSocket.current) viewerSocket.current.close();
-    speakerSockets.current.forEach((socket) => socket.close());
-    speakerSockets.current.clear();
-
-    setIsConnected(false);
-    setZoomStatus({ status: "Disconnected", message: "Disconnected" });
-    setViewerStatus({ status: "Disconnected", message: "Disconnected" });
-    setParticipants([]);
-    setLogs([]);
-  };
-
+  // --- Auto-Connection on Component Mount ---
   useEffect(() => {
-    return () => handleDisconnectAll();
-  }, []);
+    // Create a new socket instance. This is local to the effect's execution.
+    const socket = new WebSocket(BACKEND_SERVER_URL);
+    viewerSocket.current = socket;
 
-  const createSpeakerConnection = (userId, userName) => {
-    addOrUpdateParticipant(userId, userName, "Connecting...");
-    const connectionUrl = `${BACKEND_SERVER_BASE_URL}?role=speaker`;
-    const backendSocket = new WebSocket(connectionUrl);
-
-    backendSocket.onopen = () => {
-      addOrUpdateParticipant(userId, userName, "Forwarding");
-    };
-    backendSocket.onclose = () => {
-      addOrUpdateParticipant(userId, userName, "Finished");
-      speakerSockets.current.delete(userId);
-    };
-    speakerSockets.current.set(userId, backendSocket);
-  };
-
-  const handleAudioData = (content) => {
-    const { user_id, user_name, data } = content;
-    if (data === "") {
-      const speakerSocket = speakerSockets.current.get(user_id);
-      if (speakerSocket) {
-        if (speakerSocket.readyState === WebSocket.OPEN)
-          speakerSocket.send(new Blob([]));
-        setTimeout(() => speakerSocket.close(), 250);
-        addOrUpdateParticipant(user_id, user_name, "Finished");
+    socket.onopen = () => {
+      // **THE FIX:** Only update state if this is still the current socket.
+      // This prevents a previously closed socket from updating the state.
+      if (viewerSocket.current === socket) {
+        setViewerStatus({ status: "Connected", message: "Connected" });
       }
-      return;
-    }
-    if (!speakerSockets.current.has(user_id)) {
-      createSpeakerConnection(user_id, user_name);
-    }
-    const speakerSocket = speakerSockets.current.get(user_id);
-    if (speakerSocket && speakerSocket.readyState === WebSocket.OPEN) {
-      const audioBuffer = base64ToArrayBuffer(data);
-      if (audioBuffer) speakerSocket.send(audioBuffer);
-    }
-  };
+    };
 
-  const connectToViewer = () => {
-    const connectionUrl = `${BACKEND_SERVER_BASE_URL}?role=user`;
-    viewerSocket.current = new WebSocket(connectionUrl);
-    viewerSocket.current.onopen = () =>
-      setViewerStatus({ status: "Connected", message: "Connected" });
-    viewerSocket.current.onmessage = (event) =>
+    socket.onmessage = (event) => {
+      // No check needed here as we want all messages, but it's good practice.
       displayBackendResponse(event.data);
-    viewerSocket.current.onclose = () =>
-      setViewerStatus({ status: "Disconnected", message: "Disconnected" });
-  };
+    };
 
-  const handleConnect = () => {
-    if (zoomSocket.current && zoomSocket.current.readyState === WebSocket.OPEN)
-      return;
-    zoomSocket.current = new WebSocket(MOCK_ZOOM_SERVER_URL);
-    zoomSocket.current.onopen = () => {
-      setIsConnected(true);
-      setZoomStatus({ status: "Connected", message: "Connected" });
-      connectToViewer();
+    socket.onerror = () => {
+      if (viewerSocket.current === socket) {
+        setViewerStatus({ status: "Error", message: "Connection Error" });
+      }
     };
-    zoomSocket.current.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      if (message.msg_type === 14) handleAudioData(message.content);
+
+    socket.onclose = () => {
+      if (viewerSocket.current === socket) {
+        setViewerStatus({ status: "Disconnected", message: "Disconnected" });
+      }
     };
-    zoomSocket.current.onerror = () =>
-      setZoomStatus({ status: "Error", message: "Connection Error" });
-    zoomSocket.current.onclose = () => handleDisconnectAll();
-  };
+
+    // Cleanup function: this will run when the component unmounts.
+    return () => {
+      // Use the .close() method with a code and reason.
+      // This is cleaner than just letting the connection drop.
+      socket.close(1000, "Component unmounting");
+    };
+  }, []); // The empty dependency array ensures this runs only once on mount
 
   return (
     <div className="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
@@ -170,26 +89,7 @@ function App() {
           </h1>
         </header>
 
-        {/* TODO: Eventually this will auto connect and the buttons will be removed */}
-        <div className="flex justify-center space-x-4">
-          <button
-            onClick={handleConnect}
-            disabled={isConnected}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-transform transform hover:scale-105 disabled:bg-gray-500 disabled:cursor-not-allowed disabled:transform-none"
-          >
-            Connect
-          </button>
-          <button
-            onClick={handleDisconnectAll}
-            disabled={!isConnected}
-            className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition-transform transform hover:scale-105 disabled:bg-gray-500 disabled:cursor-not-allowed disabled:transform-none"
-          >
-            Disconnect
-          </button>
-        </div>
-
-        <ConnectionStatus zoomStatus={zoomStatus} viewerStatus={viewerStatus} />
-        <Participants participants={participants} />
+        <ConnectionStatus viewerStatus={viewerStatus} />
         <Translation logs={logs} />
       </div>
     </div>

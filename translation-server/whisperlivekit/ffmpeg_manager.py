@@ -1,8 +1,8 @@
 import asyncio
+import contextlib
 import logging
 from enum import Enum
-from typing import Optional, Callable
-import contextlib
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -27,12 +27,14 @@ brew install ffmpeg
 After installation, please restart the application.
 """
 
+
 class FFmpegState(Enum):
     STOPPED = "stopped"
     STARTING = "starting"
     RUNNING = "running"
     RESTARTING = "restarting"
     FAILED = "failed"
+
 
 class FFmpegManager:
     def __init__(self, sample_rate: int = 16000, channels: int = 1):
@@ -58,20 +60,26 @@ class FFmpegManager:
             cmd = [
                 "ffmpeg",
                 "-hide_banner",
-                "-loglevel", "error",
-                "-i", "pipe:0",
-                "-f", "s16le",
-                "-acodec", "pcm_s16le",
-                "-ac", str(self.channels),
-                "-ar", str(self.sample_rate),
-                "pipe:1"
+                "-loglevel",
+                "error",
+                "-i",
+                "pipe:0",
+                "-f",
+                "s16le",
+                "-acodec",
+                "pcm_s16le",
+                "-ac",
+                str(self.channels),
+                "-ar",
+                str(self.sample_rate),
+                "pipe:1",
             ]
 
             self.process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                stderr=asyncio.subprocess.PIPE,
             )
 
             self._stderr_task = asyncio.create_task(self._drain_stderr())
@@ -141,10 +149,7 @@ class FFmpegManager:
                 return None
 
         try:
-            data = await asyncio.wait_for(
-                self.process.stdout.read(size),
-                timeout=20.0
-            )
+            data = await asyncio.wait_for(self.process.stdout.read(size), timeout=20.0)
             return data
         except asyncio.TimeoutError:
             logger.warning("FFmpeg read timeout.")

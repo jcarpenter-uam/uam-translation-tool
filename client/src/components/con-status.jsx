@@ -12,13 +12,12 @@ const StatusIndicator = ({ label, connection }) => {
   );
 };
 
-const ConnectionStatus = ({ zoomStatus, viewerStatus }) => {
+const ConnectionStatus = ({ viewerStatus }) => {
   return (
     <div className="bg-gray-900 p-6 rounded-lg space-y-4">
       <h2 className="text-xl font-semibold border-b border-gray-700 pb-2">
         Connection Status
       </h2>
-      <StatusIndicator label="Zoom RTMS Server" connection={zoomStatus} />
       <StatusIndicator label="Translation Server" connection={viewerStatus} />
     </div>
   );

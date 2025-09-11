@@ -1,4 +1,7 @@
 import rtms from "@zoom/rtms";
+import { WebSocket } from "ws";
+
+const TRANSCRIPTION_SERVER_URL = "ws://localhost:8000/asr?role=speaker";
 
 let clients = new Map();
 
@@ -11,34 +14,59 @@ rtms.onWebhookEvent(({ event, payload }) => {
       return;
     }
 
-    const client = clients.get(streamId);
-    if (!client) {
+    const session = clients.get(streamId);
+    if (!session) {
       console.log(
         `Received meeting.rtms_stopped event for unknown stream ID: ${streamId}`,
       );
       return;
     }
 
-    client.leave();
+    session.zoomClient.leave();
+    if (session.wsClient) {
+      session.wsClient.close();
+      console.log(`Closed WebSocket connection for stream: ${streamId}`);
+    }
     clients.delete(streamId);
 
     return;
   } else if (event !== "meeting.rtms_started") {
-    console.log(`Ignoring unknown event`);
+    console.log(`Ignoring unknown event: ${event}`);
     return;
   }
 
-  const client = new rtms.Client();
-  clients.set(streamId, client);
+  console.log(`RTMS stream started for stream ID: ${streamId}`);
 
-  client.onTranscriptData((data, size, timestamp, metadata) => {
+  const wsClient = new WebSocket(TRANSCRIPTION_SERVER_URL);
+
+  wsClient.on("open", () => {
+    console.log(`WebSocket connection opened for stream: ${streamId}`);
+  });
+
+  wsClient.on("error", (error) => {
+    console.error(`WebSocket error for stream ${streamId}:`, error);
+  });
+
+  wsClient.on("close", () => {
+    console.log(`WebSocket connection closed for stream: ${streamId}`);
+  });
+
+  const zoomClient = new rtms.Client();
+
+  clients.set(streamId, { zoomClient, wsClient });
+
+  zoomClient.onTranscriptData((data, size, timestamp, metadata) => {
     console.log(`[${timestamp}] -- ${metadata.userName}: ${data}`);
   });
 
-  client.onAudioData((data, size, timestamp, metadata) => {
-    console.log(
-      `Received ${size} bytes of audio data at ${timestamp} from ${metadata.userName}`,
-    );
+  zoomClient.onAudioData((data, size, timestamp, metadata) => {
+    if (wsClient && wsClient.readyState === WebSocket.OPEN) {
+      wsClient.send(data);
+    }
+    // You can keep this log for debugging if you want
+    // console.log(
+    //   `Forwarded ${size} bytes of audio data from ${metadata.userName}`
+    // );
   });
 
   const video_params = {
@@ -49,22 +77,19 @@ rtms.onWebhookEvent(({ event, payload }) => {
     fps: 30,
   };
 
-  client.setVideoParams(video_params);
-
-  client.onVideoData((data, size, timestamp, metadata) => {
+  zoomClient.setVideoParams(video_params);
+  zoomClient.onVideoData((data, size, timestamp, metadata) => {
     console.log(
       `Received ${size} bytes of video data at ${timestamp} from ${metadata.userName}`,
     );
   });
 
-  client.setDeskshareParams(video_params);
-
-  client.onDeskshareData((data, size, timestamp, metadata) => {
+  zoomClient.setDeskshareParams(video_params);
+  zoomClient.onDeskshareData((data, size, timestamp, metadata) => {
     console.log(
       `Received ${size} bytes of deskshare data at ${timestamp} from ${metadata.userName}`,
     );
   });
 
-  client.join(payload);
+  zoomClient.join(payload);
 });
-

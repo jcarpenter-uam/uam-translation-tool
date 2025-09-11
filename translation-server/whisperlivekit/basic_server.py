@@ -99,9 +99,9 @@ async def websocket_endpoint(websocket: WebSocket, role: str = Query(None)):
         try:
             while True:
                 message = await websocket.receive_bytes()
-                print(
-                    f"Received audio chunk: length={len(message)}, data (first 64 bytes)={message[:64]}"
-                )
+                # print(
+                #     f"Received audio chunk: length={len(message)}, data (first 64 bytes)={message[:64]}"
+                # )
                 await audio_processor.process_audio(message)
         except WebSocketDisconnect:
             logger.info("A speaker disconnected.")
