@@ -9,19 +9,24 @@ function App() {
     status: "Disconnected",
     message: "Connecting...",
   });
-  const [transcriptData, setTranscriptData] = useState({
-    lines: [],
-    buffer: "",
-  });
+  const [transcripts, setTranscripts] = useState({});
   const viewerSocket = useRef(null);
 
   const displayBackendResponse = (data) => {
     try {
       const parsed = JSON.parse(data);
-      setTranscriptData({
-        lines: parsed.lines || [],
-        buffer: parsed.buffer_transcription || "",
-      });
+      const userName = parsed.user_name;
+
+      // console.log("Received from backend:", parsed);
+
+      if (!userName) return;
+      setTranscripts((prevTranscripts) => ({
+        ...prevTranscripts,
+        [userName]: {
+          lines: parsed.lines || [],
+          buffer: parsed.buffer_transcription || "",
+        },
+      }));
     } catch (e) {
       console.error("Error parsing backend response:", e);
     }
@@ -52,7 +57,7 @@ function App() {
         </header>
         <main className="space-y-6">
           <ConnectionStatus viewerStatus={viewerStatus} />
-          <Translation transcriptData={transcriptData} />
+          <Translation transcripts={transcripts} />
         </main>
       </div>
     </div>

@@ -61,12 +61,14 @@ rtms.onWebhookEvent(({ event, payload }) => {
 
   zoomClient.onAudioData((data, size, timestamp, metadata) => {
     if (wsClient && wsClient.readyState === WebSocket.OPEN) {
-      wsClient.send(data);
+      const payload = {
+        userName: metadata.userName,
+        audioData: data.toString("base64"),
+        timestamp: timestamp,
+      };
+
+      wsClient.send(JSON.stringify(payload));
     }
-    // You can keep this log for debugging if you want
-    // console.log(
-    //   `Forwarded ${size} bytes of audio data from ${metadata.userName}`
-    // );
   });
 
   const video_params = {

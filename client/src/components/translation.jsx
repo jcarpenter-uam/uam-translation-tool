@@ -1,15 +1,22 @@
-const Translation = ({ transcriptData }) => {
-  const { lines, buffer } = transcriptData;
+const Translation = ({ transcripts }) => {
+  const allLines = Object.entries(transcripts).flatMap(([userName, data]) =>
+    data.lines.map((line) => ({
+      ...line,
+      userName: userName,
+    })),
+  );
 
-  const formatLine = (line) => {
-    if (line.speaker === -2) return null;
+  allLines.sort((a, b) => {
+    const timeA = a.beg.split(":").reduce((acc, time) => 60 * acc + +time, 0);
+    const timeB = b.beg.split(":").reduce((acc, time) => 60 * acc + +time, 0);
+    return timeA - timeB;
+  });
 
-    const speakerLabel =
-      line.speaker === -1 ? "Speaker 1" : `Speaker ${line.speaker}`;
-    return `${speakerLabel}: ${line.text || ""}`;
-  };
+  const activeSpeaker = Object.entries(transcripts).find(
+    ([_, data]) => data.buffer,
+  );
 
-  const hasContent = lines.length > 0 || buffer.trim() !== "";
+  const hasContent = allLines.length > 0 || !!activeSpeaker;
 
   return (
     <div className="bg-gray-900 p-6 rounded-lg">
@@ -21,20 +28,27 @@ const Translation = ({ transcriptData }) => {
           <p className="text-gray-500">Waiting for responses from backend...</p>
         ) : (
           <div>
-            {lines.map((line, index) => {
-              const formatted = formatLine(line);
-              return formatted ? (
+            {allLines.map((line, index) => {
+              // Filter out silent or empty lines.
+              if (line.speaker === -2 || !line.text || !line.text.trim()) {
+                return null;
+              }
+              const formatted = `${line.userName}: ${line.text}`;
+              return (
                 <div
-                  key={index}
+                  key={`${line.userName}-${line.beg}-${index}`}
                   dangerouslySetInnerHTML={{ __html: formatted }}
                 />
-              ) : null;
+              );
             })}
 
-            {buffer && (
+            {/* Display the buffer for the currently active speaker */}
+            {activeSpeaker && (
               <div>
-                <span>Speaker 1: </span>
-                <i dangerouslySetInnerHTML={{ __html: buffer }} />
+                <span>{activeSpeaker[0]}: </span>
+                <i
+                  dangerouslySetInnerHTML={{ __html: activeSpeaker[1].buffer }}
+                />
               </div>
             )}
           </div>
